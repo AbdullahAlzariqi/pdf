@@ -158,6 +158,31 @@ var macRomanEncoding = [256]rune{
 	0x00af, 0x02d8, 0x02d9, 0x02da, 0x00b8, 0x02dd, 0x02db, 0x02c7,
 }
 
+// canBeMerged checks if two spans can be merged into a single line.
+func canBeMerged(span1, span2 Span) bool {
+	// 1. Must have the same style (font, size).
+	if span1.Font != span2.Font || span1.FontSize != span2.FontSize {
+		return false
+	}
+
+	// 2. Must be on the same baseline.
+	if math.Abs(span1.Y-span2.Y) > 2.0 { // A small tolerance
+		return false
+	}
+
+	// 3. Must be reasonably close horizontally.
+	// This is the "adaptive" part. It calculates the expected width of a space.
+	// We don't have a good way to get the font here, so we'll use a heuristic.
+	spaceWidth := span1.FontSize * 0.25
+	distance := span2.X - (span1.X + span1.W)
+
+	if distance > spaceWidth*1.5 {
+		return false
+	}
+
+	return true
+}
+
 // isSameSentence checks if the current text segment likely belongs to the same sentence
 // as the last text segment based on font, size, vertical position, and lack of
 // sentence-ending punctuation in the last segment.
