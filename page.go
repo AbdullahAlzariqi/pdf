@@ -83,35 +83,20 @@ func (r *Reader) GetPlainText() (reader io.Reader, err error) {
 }
 
 // GetStyledTexts returns list all sentences in an array, that are included styles
-func (r *Reader) GetStyledTexts() (sentences []Text, err error) {
+func (r *Reader) GetStyledTexts() ([]Span, error) {
 	totalPage := r.NumPage()
+	var allSpans []Span
 	for pageIndex := 1; pageIndex <= totalPage; pageIndex++ {
 		p := r.Page(pageIndex)
-
-		if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-			continue
-		}
-		var lastTextStyle Text
-		texts := p.Content().Text
-		for _, text := range texts {
-			if lastTextStyle == (Text{}) {
-				lastTextStyle = text
-				continue
+		blocks := p.buildPageHierarchy()
+		for _, block := range blocks {
+			for _, line := range block.Lines {
+				allSpans = append(allSpans, line.Spans...)
 			}
-
-			if IsSameSentence(lastTextStyle, text) {
-				lastTextStyle.S = lastTextStyle.S + text.S
-			} else {
-				sentences = append(sentences, lastTextStyle)
-				lastTextStyle = text
-			}
-		}
-		if len(lastTextStyle.S) > 0 {
-			sentences = append(sentences, lastTextStyle)
 		}
 	}
 
-	return sentences, err
+	return allSpans, nil
 }
 
 func (p Page) findInherited(key string) Value {
@@ -495,6 +480,30 @@ type Point struct {
 	Y float64
 }
 
+// A Span represents a contiguous run of text with the same style.
+type Span struct {
+	Font     string
+	FontSize float64
+	Color    int
+	X, Y     float64
+	W        float64
+	S        string
+}
+
+// A Line represents a line of text.
+type Line struct {
+	Spans []Span
+	X, Y  float64
+	W, H  float64
+}
+
+// A Block represents a block of text, like a paragraph.
+type Block struct {
+	Lines []Line
+	X, Y  float64
+	W, H  float64
+}
+
 // Content describes the basic content on a page: the text and any drawn rectangles.
 type Content struct {
 	Text []Text
@@ -520,97 +529,20 @@ type gstate struct {
 // GetPlainText returns the page's all text without format.
 // fonts can be passed in (to improve parsing performance) or left nil
 func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			result = ""
-			err = errors.New(fmt.Sprint(r))
+	blocks := p.buildPageHierarchy()
+	var buf bytes.Buffer
+	for _, block := range blocks {
+		for _, line := range block.Lines {
+			for _, span := range line.Spans {
+				buf.WriteString(span.S)
+				buf.WriteString(" ")
+			}
+			buf.WriteString("\n")
 		}
-	}()
-
-	// Handle in case the content page is empty
-	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-		return "", nil
+		buf.WriteString("\n")
 	}
-	strm := p.V.Key("Contents")
-	var enc TextEncoding = &nopEncoder{}
+	return buf.String(), nil
 
-	if fonts == nil {
-		fonts = make(map[string]*Font)
-		for _, font := range p.Fonts() {
-			f := p.Font(font)
-			fonts[font] = &f
-		}
-	}
-
-	var textBuilder bytes.Buffer
-	showText := func(s string) {
-		textBuilder.WriteString(s)
-	}
-	showEncodedText := func(s string) {
-		for _, ch := range enc.Decode(s) {
-			_, err := textBuilder.WriteRune(ch)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-
-	Interpret(strm, func(stk *Stack, op string) {
-		n := stk.Len()
-		args := make([]Value, n)
-		for i := n - 1; i >= 0; i-- {
-			args[i] = stk.Pop()
-		}
-
-		switch op {
-		default:
-			// Easier debug
-			// fmt.Println("<DEBUG><op>", op, "</op><args>", args, "</args>")
-			return
-		case "BT": // add a space between text objects
-			showText("\n")
-		case "T*": // move to start of next line
-			showEncodedText("\n")
-		case "Tf": // set text font and size
-			if len(args) != 2 {
-				panic("bad TL")
-			}
-			if font, ok := fonts[args[0].Name()]; ok {
-				enc = font.Encoder()
-			} else {
-				enc = &nopEncoder{}
-			}
-		case "\"": // set spacing, move to next line, and show text
-			if len(args) != 3 {
-				panic("bad \" operator")
-			}
-			fallthrough
-		case "'": // move to next line and show text
-			if len(args) != 1 {
-				panic("bad ' operator")
-			}
-			fallthrough
-		case "Tj": // show text
-			if len(args) != 1 {
-				panic("bad Tj operator")
-			}
-			showEncodedText(args[0].RawString())
-		case "TJ": // show text, allowing individual glyph positioning
-			v := args[0]
-			for i := 0; i < v.Len(); i++ {
-				x := v.Index(i)
-				if x.Kind() == String {
-					showEncodedText(x.RawString())
-				} else if x.Kind() == Integer || x.Kind() == Real {
-					if x.Float64() < -100 {
-						showEncodedText(" ")
-					}
-				}
-			}
-			showText(" ")
-		}
-	})
-	return textBuilder.String(), nil
 }
 
 // Column represents the contents of a column
@@ -1055,6 +987,106 @@ func (p Page) Content() Content {
 		}
 	})
 	return Content{text, rect, nil}
+}
+
+// buildPageHierarchy builds a hierarchical representation of the page content.
+func (p Page) buildPageHierarchy() []Block {
+	content := p.Content()
+	if len(content.Text) == 0 {
+		return nil
+	}
+
+	var spans []Span
+	if len(content.Text) > 0 {
+		currentSpan := Span{
+			Font:     content.Text[0].Font,
+			FontSize: content.Text[0].FontSize,
+			X:        content.Text[0].X,
+			Y:        content.Text[0].Y,
+			S:        content.Text[0].S,
+			W:        content.Text[0].W,
+		}
+
+		for i := 1; i < len(content.Text); i++ {
+			text := content.Text[i]
+			if text.Font == currentSpan.Font && text.FontSize == currentSpan.FontSize && text.Y == currentSpan.Y {
+				currentSpan.S += text.S
+				currentSpan.W += text.W
+			} else {
+				spans = append(spans, currentSpan)
+				currentSpan = Span{
+					Font:     text.Font,
+					FontSize: text.FontSize,
+					X:        text.X,
+					Y:        text.Y,
+					S:        text.S,
+					W:        text.W,
+				}
+			}
+		}
+		spans = append(spans, currentSpan)
+	}
+
+	var lines []Line
+	if len(spans) > 0 {
+		currentLine := Line{
+			Spans: []Span{spans[0]},
+			X:     spans[0].X,
+			Y:     spans[0].Y,
+			W:     spans[0].W,
+			H:     spans[0].FontSize,
+		}
+
+		for i := 1; i < len(spans); i++ {
+			span := spans[i]
+			if span.Y == currentLine.Y {
+				currentLine.Spans = append(currentLine.Spans, span)
+				currentLine.W += span.W
+			} else {
+				lines = append(lines, currentLine)
+				currentLine = Line{
+					Spans: []Span{span},
+					X:     span.X,
+					Y:     span.Y,
+					W:     span.W,
+					H:     span.FontSize,
+				}
+			}
+		}
+		lines = append(lines, currentLine)
+	}
+
+	var blocks []Block
+	if len(lines) > 0 {
+		currentBlock := Block{
+			Lines: []Line{lines[0]},
+			X:     lines[0].X,
+			Y:     lines[0].Y,
+			W:     lines[0].W,
+			H:     lines[0].H,
+		}
+
+		for i := 1; i < len(lines); i++ {
+			line := lines[i]
+			if (currentBlock.Y - line.Y) < (currentBlock.H * 1.5) {
+				currentBlock.Lines = append(currentBlock.Lines, line)
+				currentBlock.H += line.H
+			} else {
+				blocks = append(blocks, currentBlock)
+				currentBlock = Block{
+					Lines: []Line{line},
+					X:     line.X,
+					Y:     line.Y,
+					W:     line.W,
+					H:     line.H,
+				}
+			}
+		}
+		blocks = append(blocks, currentBlock)
+	}
+
+	return blocks
+
 }
 
 // TextVertical implements sort.Interface for sorting
