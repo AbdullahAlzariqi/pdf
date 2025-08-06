@@ -533,9 +533,11 @@ func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 	var buf bytes.Buffer
 	for _, block := range blocks {
 		for _, line := range block.Lines {
-			for _, span := range line.Spans {
+			for i, span := range line.Spans {
 				buf.WriteString(span.S)
-				buf.WriteString(" ")
+				if i < len(line.Spans)-1 {
+					buf.WriteString(" ")
+				}
 			}
 			buf.WriteString("\n")
 		}
@@ -797,6 +799,9 @@ func (p Page) Content() Content {
 			text = append(text, Text{f, Trm[0][0], Trm[2][0], Trm[2][1], w0 / 1000 * Trm[0][0], string(ch)})
 
 			tx := w0/1000*g.Tfs + g.Tc
+			if ch == ' ' {
+				tx += g.Tw
+			}
 			tx *= g.Th
 			g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
 		}
@@ -932,16 +937,20 @@ func (p Page) Content() Content {
 
 		case "TJ": // show text, allowing individual glyph positioning
 			v := args[0]
+			spaceWidth := g.Tf.Width(int(' ')) / 1000 * g.Tfs
 			for i := 0; i < v.Len(); i++ {
 				x := v.Index(i)
 				if x.Kind() == String {
 					showText(x.RawString())
 				} else {
-					tx := -x.Float64() / 1000 * g.Tfs * g.Th
+					displacement := -x.Float64() / 1000 * g.Tfs
+					if spaceWidth > 0 && displacement > spaceWidth*0.25 {
+						showText(" ")
+					}
+					tx := displacement * g.Th
 					g.Tm = matrix{{1, 0, 0}, {0, 1, 0}, {tx, 0, 1}}.mul(g.Tm)
 				}
 			}
-			showText("\n")
 
 		case "TL": // set text leading
 			if len(args) != 1 {
