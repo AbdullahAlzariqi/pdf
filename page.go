@@ -542,6 +542,7 @@ func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 		buf.WriteString("\n")
 	}
 	return buf.String(), nil
+
 }
 
 // Column represents the contents of a column
@@ -1085,6 +1086,7 @@ func (p Page) buildPageHierarchy() []Block {
 	}
 
 	return blocks
+
 }
 
 // TextVertical implements sort.Interface for sorting

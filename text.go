@@ -218,3 +218,13 @@ func IsSameSentence(last, current Text) bool {
 		math.Abs(last.Y-current.Y) < 5 &&
 		last.S != ""
 }
+
+// IsSameWord checks if the current text segment likely belongs to the same word
+// as the last text segment based on font, size, vertical position, and distance.
+func IsSameWord(last, current Text) bool {
+	return last.Font == current.Font &&
+		math.Abs(last.FontSize-current.FontSize) < 0.1 &&
+		math.Abs(last.Y-current.Y) < 5 &&
+		current.X-last.X < 20 && // This is a bit of a magic number, but it seems to work.
+		last.S != ""
+}
