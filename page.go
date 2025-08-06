@@ -499,6 +499,7 @@ type Point struct {
 type Content struct {
 	Text []Text
 	Rect []Rect
+	prev *Text
 }
 
 type gstate struct {
@@ -600,8 +601,13 @@ func (p Page) GetPlainText(fonts map[string]*Font) (result string, err error) {
 				x := v.Index(i)
 				if x.Kind() == String {
 					showEncodedText(x.RawString())
+				} else if x.Kind() == Integer || x.Kind() == Real {
+					if x.Float64() < -100 {
+						showEncodedText(" ")
+					}
 				}
 			}
+			showText(" ")
 		}
 	})
 	return textBuilder.String(), nil
@@ -817,7 +823,7 @@ func (p Page) walkTextBlocks(walker func(enc TextEncoding, x, y float64, s strin
 				}
 			}
 		case "Td":
-			walker(enc, currentX, currentY, "")
+			walker(enc, currentX, currentY, "\n")
 		case "Tm":
 			currentX = args[4].Float64()
 			currentY = args[5].Float64()
@@ -829,7 +835,7 @@ func (p Page) walkTextBlocks(walker func(enc TextEncoding, x, y float64, s strin
 func (p Page) Content() Content {
 	// Handle in case the content page is empty
 	if p.V.IsNull() || p.V.Key("Contents").Kind() == Null {
-		return Content{}
+		return Content{nil, nil, nil}
 	}
 	strm := p.V.Key("Contents")
 	var enc TextEncoding = &nopEncoder{}
@@ -1048,7 +1054,7 @@ func (p Page) Content() Content {
 			g.Th = args[0].Float64() / 100
 		}
 	})
-	return Content{text, rect}
+	return Content{text, rect, nil}
 }
 
 // TextVertical implements sort.Interface for sorting
