@@ -158,25 +158,51 @@ var macRomanEncoding = [256]rune{
 	0x00af, 0x02d8, 0x02d9, 0x02da, 0x00b8, 0x02dd, 0x02db, 0x02c7,
 }
 
-// canBeMerged checks if two spans can be merged into a single line.
-func canBeMerged(span1, span2 Span) bool {
+// MergeOptions control the tolerances used when deciding whether two spans can
+// be merged into a single line. The default values mirror the historical
+// behaviour of this package.
+type MergeOptions struct {
+	// BaselineTolerance is the maximum allowed difference between the Y
+	// coordinates of two spans for them to be considered on the same line.
+	BaselineTolerance float64
+	// SpaceMultiplier is the multiplier applied to the expected space width
+	// when determining if two spans are "close enough" to merge. A larger
+	// value allows more separation.
+	SpaceMultiplier float64
+}
+
+// DefaultMergeOptions provides sensible defaults for merging decisions.
+var DefaultMergeOptions = MergeOptions{
+	BaselineTolerance: 2.0,
+	SpaceMultiplier:   1.5,
+}
+
+// canBeMerged checks if two spans can be merged into a single line. The font
+// and spacing parameters describe the active text state when the spans were
+// generated.
+func canBeMerged(span1, span2 Span, font Font, charSpacing, wordSpacing float64, opts MergeOptions) bool {
 	// 1. Must have the same style (font, size).
 	if span1.Font != span2.Font || span1.FontSize != span2.FontSize {
 		return false
 	}
 
-	// 2. Must be on the same baseline.
-	if math.Abs(span1.Y-span2.Y) > 2.0 { // A small tolerance
+	// 2. Must be on the same baseline within tolerance.
+	if math.Abs(span1.Y-span2.Y) > opts.BaselineTolerance {
 		return false
 	}
 
-	// 3. Must be reasonably close horizontally.
-	// This is the "adaptive" part. It calculates the expected width of a space.
-	// We don't have a good way to get the font here, so we'll use a heuristic.
-	spaceWidth := span1.FontSize * 0.25
-	distance := span2.X - (span1.X + span1.W)
+	// 3. Must be reasonably close horizontally. Use the font's space glyph
+	// width combined with character and word spacing operators to determine
+	// the expected distance between spans.
+	spaceGlyph := font.Width(int(' '))
+	// Font.Width returns glyph units; convert to user space by scaling with
+	// the font size.
+	spaceWidth := spaceGlyph / 1000 * span1.FontSize
+	// Include character and word spacing operators (Tc and Tw).
+	spaceWidth += charSpacing + wordSpacing
 
-	if distance > spaceWidth*1.5 {
+	distance := span2.X - (span1.X + span1.W)
+	if distance > spaceWidth*opts.SpaceMultiplier {
 		return false
 	}
 
