@@ -232,15 +232,6 @@ Contributions are welcome! Please ensure:
 3. Code follows Go conventions
 4. Documentation is updated
 
-## Publishing on pkg.go.dev
-
-To publish the module documentation on pkg.go.dev:
-
-1. Ensure `go.mod` declares `module github.com/AbdullahAlzariqi/pdf`.
-2. Push the repository to a public Git host.
-3. Create and push a semantic version tag, e.g., `git tag v0.1.0` and `git push origin v0.1.0`.
-4. Visit https://pkg.go.dev/github.com/AbdullahAlzariqi/pdf to view the documentation.
-
 ## License
 
 This project is licensed under the same terms as the original Go PDF library.
