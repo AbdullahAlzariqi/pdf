@@ -4,7 +4,7 @@
 
 // Pdfpasswd searches for the password for an encrypted PDF
 // by trying all strings over a given alphabet up to a given length.
-package main // import "rsc.io/pdf/pdfpasswd"
+package main // import "github.com/AbdullahAlzariqi/pdf/pdfpasswd"
 
 import (
 	"flag"
@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/ledongthuc/pdf"
+	"github.com/AbdullahAlzariqi/pdf"
 )
 
 var (
